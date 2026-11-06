@@ -5,7 +5,8 @@ services:
     name: kyron-links
     runtime: node
     region: oregon
-    plan: starter
+    # Free: no card needed. It sleeps after 15 idle minutes; see README.
+    plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz

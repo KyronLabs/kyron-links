@@ -9,6 +9,8 @@
   --accent: #0f9d77;
   --accent-text: #ffffff;
   --tick: #1d9bf0;
+  --link: #0b7bd3;
+  --bar: #c9ccd2;
   color-scheme: light dark;
 }
 
@@ -21,6 +23,8 @@
     --line: #26282d;
     --accent: #19c08f;
     --accent-text: #04140f;
+    --link: #4aa8ff;
+    --bar: #3a3d44;
   }
 }
 
@@ -110,6 +114,7 @@ main {
   color: var(--muted);
 }
 
+.s24 { width: 24px; height: 24px; font-size: 11px; }
 .s44 { width: 44px; height: 44px; font-size: 18px; }
 .s88 { width: 88px; height: 88px; font-size: 36px; }
 
@@ -154,7 +159,9 @@ main {
 }
 
 .gallery.n2, .gallery.n3, .gallery.n4 { grid-template-columns: 1fr 1fr; }
-.gallery.n3 .media:first-child { grid-row: span 2; }
+.gallery.n3 .tile:first-child { grid-row: span 2; }
+
+.tile { position: relative; min-width: 0; }
 
 .media {
   display: block;
@@ -169,6 +176,139 @@ main {
   height: 100%;
   aspect-ratio: 1;
 }
+
+/* "+4": the last tile of four, when the post has more. */
+.more-count {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.5);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* Links in what people wrote. */
+.content a, .replying a { color: var(--link); text-decoration: none; }
+.content a:hover, .replying a:hover { text-decoration: underline; }
+
+.replying {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* A poll's results. Bars are <progress>, so no width is ever inline. */
+.poll { margin-top: 12px; display: grid; gap: 10px; }
+
+.option-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.option-text { overflow-wrap: anywhere; }
+.option-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+.option.top .option-text, .option.top .option-pct { font-weight: 700; color: var(--text); }
+
+.poll progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.poll progress::-webkit-progress-bar { background: var(--surface); border-radius: 999px; }
+.poll progress::-webkit-progress-value { background: var(--bar); border-radius: 999px; }
+.poll progress::-moz-progress-bar { background: var(--bar); border-radius: 999px; }
+.option.top progress::-webkit-progress-value { background: var(--accent); }
+.option.top progress::-moz-progress-bar { background: var(--accent); }
+
+.poll-meta { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+
+/* A quoted post, and a post in a list: both one link to the post. */
+.quote, .item {
+  display: block;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.quote { margin-top: 12px; }
+.quote:hover, .item:hover { background: var(--surface); }
+
+.mini {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.mini .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.mini .handle { font-size: 14px; overflow: hidden; text-overflow: ellipsis; }
+.mini .avatar { width: 24px; height: 24px; }
+
+.quote-body, .item-body {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.quote-text, .item-text {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  overflow: hidden;
+}
+
+.quote-body { flex-direction: row-reverse; }
+.muted { color: var(--muted); }
+
+.thumb { position: relative; flex: none; }
+
+.thumb img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface);
+}
+
+.thumb-count {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.item .meta { margin-top: 8px; font-size: 13px; }
+
+.recent { margin-top: 28px; }
+.recent h2 { font-size: 16px; margin: 0 0 10px; }
+.list { display: grid; gap: 10px; }
 
 .voice {
   margin: 12px 0 0;

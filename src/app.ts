@@ -3,6 +3,7 @@ import { Hono, type Context } from 'hono';
 import type { Api, Lookup } from './api.js';
 import type { Config } from './config.js';
 import {
+  commentPage,
   communityPage,
   downPage,
   homePage,
@@ -123,6 +124,7 @@ export function createApp(config: Config, api: Api, assets: Map<string, Asset>) 
             appIDs: config.iosAppIds,
             components: [
               { '/': '/post/*' },
+              { '/': '/comment/*' },
               { '/': '/u/*' },
               { '/': '/c/*' },
               { '/': '/@*' },
@@ -156,6 +158,15 @@ export function createApp(config: Config, api: Api, assets: Map<string, Asset>) 
     return page(c, 'post', await api.post(id), (post) => postPage(config, post, open));
   });
 
+  app.get('/comment/:id', async (c) => {
+    const id = c.req.param('id');
+    if (!UUID.test(id)) return missing(c, 'comment');
+    const open = openIn(config, `/comment/${id}`, isAndroid(c));
+    return page(c, 'comment', await api.comment(id), (comment) =>
+      commentPage(config, comment, open),
+    );
+  });
+
   app.get('/u/:id', async (c) => {
     const id = c.req.param('id');
     if (!UUID.test(id)) return missing(c, 'profile');
@@ -171,8 +182,16 @@ export function createApp(config: Config, api: Api, assets: Map<string, Asset>) 
   app.get('/c/:slug', async (c) => {
     const slug = c.req.param('slug');
     if (!NAME.test(slug)) return missing(c, 'community');
+    const lookup = await api.community(slug);
+    // Before /comment/, the app shared comments as /c/<id> -- the same path
+    // as communities. Those links are out there; a community is never named
+    // with an id, so an id that is not one is tried as a comment.
+    if (lookup.kind === 'missing' && UUID.test(slug)) {
+      const comment = await api.comment(slug);
+      if (comment.kind === 'found') return c.redirect(`/comment/${slug}`, 301);
+    }
     const open = openIn(config, `/c/${slug}`, isAndroid(c));
-    return page(c, 'community', await api.community(slug), (community) =>
+    return page(c, 'community', lookup, (community) =>
       communityPage(config, community, open),
     );
   });

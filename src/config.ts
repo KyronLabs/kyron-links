@@ -42,6 +42,13 @@ export interface Config {
   termsUrl: string;
   privacyUrl: string;
 
+  /**
+   * Where Report on a page writes to: the inbox the published terms name
+   * for reports. A page anybody can open must say how to get something
+   * taken down.
+   */
+  reportEmail: string;
+
   port: number;
 }
 
@@ -102,6 +109,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
+  const reportEmail = env.REPORT_EMAIL ?? 'spidroidtechnologiesinc@gmail.com';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reportEmail)) {
+    throw new Error(`REPORT_EMAIL must be an email address, and is "${reportEmail}".`);
+  }
+
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`PORT must be a port number, and is "${env.PORT}".`);
@@ -133,6 +145,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
       env.PRIVACY_URL ??
         'https://kyron-terms-and-privacy.onrender.com/privacy.html',
     ),
+    reportEmail,
     port,
   };
 }
