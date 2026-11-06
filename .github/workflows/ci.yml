@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # The server has to start with nothing but defaults, or a deploy that
+      # forgot a variable would fail where nobody is looking.
+      - name: Boots and answers
+        run: |
+          PORT=3999 node dist/server.js &
+          for i in $(seq 1 20); do curl -fs localhost:3999/healthz && break; sleep 0.5; done
+          curl -fs localhost:3999/ | grep -q '<title>Kyron</title>'
+          curl -fsI localhost:3999/static/site.css | grep -qi 'content-security-policy'

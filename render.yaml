@@ -1,0 +1,29 @@
+services:
+  # Kyron's shared links: read-only pages for posts, profiles and communities,
+  # and the files Android and iOS check before opening links in the app.
+  - type: web
+    name: kyron-links
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # The API's public address.
+      - key: API_URL
+        value: https://kyron-47r6.onrender.com
+      # The address links are written with. Change it when the domain is
+      # attached, and use the same host in the app (KyronLinks.host).
+      - key: SITE_URL
+        value: https://kyron-links.onrender.com
+      # The same value as the API's PUBLIC_PAGES_KEY. openssl rand -hex 32
+      - key: PUBLIC_PAGES_KEY
+        sync: false
+      # Play Console, Test and release, App integrity, App signing: the
+      # SHA-256 of the app signing key (and the upload key, comma-separated,
+      # if internal testing builds are signed with it).
+      - key: ANDROID_CERT_SHA256
+        sync: false

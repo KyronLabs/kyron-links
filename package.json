@@ -1,0 +1,26 @@
+{
+  "name": "kyron-links",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only pages for Kyron's shared links.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.19.6",
+    "hono": "4.10.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
