@@ -269,6 +269,8 @@ main {
 }
 
 .quote-text, .item-text {
+  flex: 1;
+  min-width: 0;
   font-size: 15px;
   overflow-wrap: anywhere;
   display: -webkit-box;
@@ -278,7 +280,6 @@ main {
   overflow: hidden;
 }
 
-.quote-body { flex-direction: row-reverse; }
 .muted { color: var(--muted); }
 
 .thumb { position: relative; flex: none; }

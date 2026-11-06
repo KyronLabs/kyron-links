@@ -331,7 +331,7 @@ export function pollBlock(poll: PublicPoll, now = new Date()): Html {
 function quoteCard(quoted: NonNullable<PublicPost['quoted']>): Html {
   return html`<a class="quote" href="/post/${quoted.id}">
   ${miniByline(quoted.author, quoted.createdAt)}
-  <span class="quote-body">${thumb(quoted.media, quoted.media.length)}<span class="quote-text">${summary(quoted.content, 280)}</span></span>
+  <span class="quote-body"><span class="quote-text">${summary(quoted.content, 280)}</span>${thumb(quoted.media, quoted.media.length)}</span>
 </a>`;
 }
 
