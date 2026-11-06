@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Api, Lookup, PublicCommunity, PublicPost, PublicProfile } from '../src/api.js';
+import type {
+  Api,
+  Lookup,
+  PublicComment,
+  PublicCommunity,
+  PublicPost,
+  PublicProfile,
+} from '../src/api.js';
 import { createApp, SECURITY_HEADERS } from '../src/app.js';
 import { loadAssets } from '../src/assets.js';
 import { readConfig } from '../src/config.js';
-import { summary } from '../src/render.js';
+import { displayUrl, pollBlock, richText, summary } from '../src/render.js';
 
 const POST_ID = '7d5d3c2a-1b0e-4f7a-9c1d-2e3f4a5b6c7d';
 const ANDROID =
@@ -19,8 +26,11 @@ function post(over: Partial<PublicPost> = {}): PublicPost {
     author: { name: 'Ada', username: 'ada', verified: true, avatarUrl: 'https://cdn.example/ada.jpg' },
     community: null,
     media: [],
+    mediaCount: 0,
     hasVoice: false,
     stats: { likes: 1200, comments: 1, reposts: 0 },
+    poll: null,
+    quoted: null,
     ...over,
   };
 }
@@ -34,6 +44,7 @@ const profile: PublicProfile = {
   bio: 'Sails small boats.',
   coverUrl: null,
   stats: { followers: 3, following: 4, posts: 5 },
+  recent: [post({ id: 'aaaaaaaa-0000-4000-8000-000000000001', content: 'An older one' })],
 };
 
 const community: PublicCommunity = {
@@ -44,6 +55,18 @@ const community: PublicCommunity = {
   avatarUrl: null,
   bannerUrl: null,
   members: 42,
+  recent: [],
+};
+
+const COMMENT_ID = '11111111-2222-4333-8444-555555555555';
+const comment: PublicComment = {
+  id: COMMENT_ID,
+  content: 'Lovely light, @ada.',
+  createdAt: '2026-11-05T09:00:00.000Z',
+  author: { name: 'Ben', username: 'ben', verified: false, avatarUrl: null },
+  media: [],
+  stats: { likes: 2, replies: 1 },
+  post: post(),
 };
 
 function fakeApi(over: Partial<Record<keyof Api, Lookup<unknown>>> = {}) {
@@ -52,6 +75,9 @@ function fakeApi(over: Partial<Record<keyof Api, Lookup<unknown>>> = {}) {
     profile: vi.fn(async () => (over.profile ?? { kind: 'found', value: profile }) as Lookup<PublicProfile>),
     community: vi.fn(
       async () => (over.community ?? { kind: 'found', value: community }) as Lookup<PublicCommunity>,
+    ),
+    comment: vi.fn(
+      async () => (over.comment ?? { kind: 'found', value: comment }) as Lookup<PublicComment>,
     ),
   };
   return api;
@@ -140,6 +166,78 @@ describe('a shared post', () => {
     expect(body).toContain('<meta property="og:image" content="https://kyron.example/static/card.png">');
   });
 
+  it('says how many more pictures there are than it shows', async () => {
+    const picture = { kind: 'IMAGE' as const, url: 'https://cdn.example/a.jpg', thumbnailUrl: null, width: null, height: null, alt: null };
+    const api = fakeApi({
+      post: { kind: 'found', value: post({ media: [picture, picture, picture, picture], mediaCount: 8 }) },
+    });
+    const { body } = await get(appWith(api), `/post/${POST_ID}`);
+    expect(body).toContain('<span class="more-count" aria-label="4 more in the app">+4</span>');
+    expect(body.match(/class="tile/g)).toHaveLength(4);
+  });
+
+  it('says nothing more when it shows them all', async () => {
+    const picture = { kind: 'IMAGE' as const, url: 'https://cdn.example/a.jpg', thumbnailUrl: null, width: null, height: null, alt: null };
+    const api = fakeApi({ post: { kind: 'found', value: post({ media: [picture, picture], mediaCount: 2 }) } });
+    const { body } = await get(appWith(api), `/post/${POST_ID}`);
+    expect(body).not.toContain('more-count');
+  });
+
+  it('shows a poll’s results as bars, with no inline style', async () => {
+    const api = fakeApi({
+      post: {
+        kind: 'found',
+        value: post({
+          content: 'Tea or coffee?',
+          poll: {
+            options: [
+              { text: 'Tea', votes: 3 },
+              { text: 'Coffee <b>', votes: 1 },
+            ],
+            totalVotes: 4,
+            closesAt: '2020-01-01T00:00:00.000Z',
+          },
+        }),
+      },
+    });
+    const { body } = await get(appWith(api), `/post/${POST_ID}`);
+    expect(body).toContain('<progress max="4" value="3">75%</progress>');
+    expect(body).toContain('Coffee &lt;b&gt;');
+    expect(body).toContain('4 votes · Final results');
+    expect(body).toContain('class="option top"');
+    expect(body).not.toMatch(/style=/);
+  });
+
+  it('says when an open poll closes', () => {
+    const open = pollBlock(
+      { options: [{ text: 'A', votes: 0 }], totalVotes: 0, closesAt: '2026-12-01T18:30:00.000Z' },
+      new Date('2026-11-06T00:00:00Z'),
+    );
+    const text = String(open);
+    expect(text).toContain('0 votes · Open until 1 Dec');
+    expect(text).toContain('<progress max="1" value="0">0%</progress>');
+  });
+
+  it('shows the post it quotes, as a link to that post', async () => {
+    const api = fakeApi({
+      post: {
+        kind: 'found',
+        value: post({
+          quoted: {
+            id: 'bbbbbbbb-0000-4000-8000-000000000002',
+            content: 'The original <i>',
+            createdAt: '2026-11-01T00:00:00.000Z',
+            author: { name: 'Ben', username: 'ben', verified: false, avatarUrl: null },
+            media: [],
+          },
+        }),
+      },
+    });
+    const { body } = await get(appWith(api), `/post/${POST_ID}`);
+    expect(body).toContain('<a class="quote" href="/post/bbbbbbbb-0000-4000-8000-000000000002">');
+    expect(body).toContain('The original &lt;i&gt;');
+  });
+
   it('says a voice note is there', async () => {
     const api = fakeApi({ post: { kind: 'found', value: post({ hasVoice: true }) } });
     const { body } = await get(appWith(api), `/post/${POST_ID}`);
@@ -202,6 +300,13 @@ describe('a shared profile', () => {
     expect(body).toContain('<link rel="canonical" href="https://kyron.example/@ada">');
   });
 
+  it('lists recent posts, each a link to its page', async () => {
+    const { body } = await get(appWith(fakeApi()), '/@ada');
+    expect(body).toContain('Recent posts');
+    expect(body).toContain('<a class="item" href="/post/aaaaaaaa-0000-4000-8000-000000000001">');
+    expect(body).toContain('An older one');
+  });
+
   it('by id, moves to its handle: one address per person', async () => {
     const { res } = await get(appWith(fakeApi()), `/u/${POST_ID}`);
     expect(res.status).toBe(301);
@@ -225,12 +330,87 @@ describe('a shared profile', () => {
   });
 });
 
+describe('a shared comment', () => {
+  it('is at /comment/id, with the post it answers', async () => {
+    const { res, body } = await get(appWith(fakeApi()), `/comment/${COMMENT_ID}`);
+    expect(res.status).toBe(200);
+    expect(body).toContain('<title>Ben (@ben) on Kyron</title>');
+    expect(body).toContain('Replying to <a href="/@ada">@ada</a>');
+    expect(body).toContain(`<a class="item" href="/post/${POST_ID}">`);
+    expect(body).toContain('1 reply');
+  });
+
+  it('under the old /c/ address, moves to /comment/', async () => {
+    const api = fakeApi({ community: { kind: 'missing' } });
+    const { res } = await get(appWith(api), `/c/${COMMENT_ID}`);
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(`/comment/${COMMENT_ID}`);
+  });
+
+  it('a community slug is never tried as a comment', async () => {
+    const api = fakeApi({ community: { kind: 'missing' } });
+    const { res } = await get(appWith(api), '/c/sailing');
+    expect(res.status).toBe(404);
+    expect(api.comment).not.toHaveBeenCalled();
+  });
+
+  it('is not asked for with an id that could not be one', async () => {
+    const api = fakeApi();
+    const { res } = await get(appWith(api), '/comment/nope');
+    expect(res.status).toBe(404);
+    expect(api.comment).not.toHaveBeenCalled();
+  });
+});
+
 describe('a shared community', () => {
   it('is at /c/slug', async () => {
     const { res, body } = await get(appWith(fakeApi()), '/c/sailing');
     expect(res.status).toBe(200);
     expect(body).toContain('<title>Sailing on Kyron</title>');
     expect(body).toContain('42 members');
+    expect(body).toContain('Nothing has been posted here yet.');
+  });
+});
+
+describe('a post’s text', () => {
+  const render = (text: string) => String(richText(text));
+
+  it('links mentions to their profiles, and addresses to themselves', () => {
+    expect(render('hi @ada.')).toBe('hi <a class="mention" href="/@ada">@ada</a>.');
+    expect(render('see https://example.com/a/b?c=1, ok')).toBe(
+      'see <a class="link" href="https://example.com/a/b?c=1" rel="nofollow ugc noopener noreferrer">example.com/a/b?c=1</a>, ok',
+    );
+  });
+
+  it('leaves an email address alone', () => {
+    expect(render('mail ada@example.com')).toBe('mail ada@example.com');
+  });
+
+  it('never links anything but http and https', () => {
+    for (const text of ['javascript:alert(1)', 'data:text/html,x', 'ftp://x.example']) {
+      expect(render(text)).not.toContain('<a');
+    }
+  });
+
+  it('escapes what is around and inside the links', () => {
+    const out = render('<b>hi</b> https://x.example/"onmouseover=alert(1) @a<b');
+    expect(out).not.toContain('<b>');
+    expect(out).not.toContain('"onmouseover');
+    expect(out).toContain('&lt;b&gt;hi&lt;/b&gt;');
+  });
+
+  it('shows a long address cut short', () => {
+    expect(displayUrl('https://www.example.com/' + 'a'.repeat(100))).toHaveLength(32);
+    expect(displayUrl('https://www.example.com/x')).toBe('example.com/x');
+  });
+});
+
+describe('every page', () => {
+  it('says how to report it', async () => {
+    const { body } = await get(appWith(fakeApi()), `/post/${POST_ID}`);
+    expect(body).toContain(
+      `href="mailto:spidroidtechnologiesinc@gmail.com?subject=Report%3A%20https%3A%2F%2Fkyron.example%2Fpost%2F${POST_ID}`,
+    );
   });
 });
 

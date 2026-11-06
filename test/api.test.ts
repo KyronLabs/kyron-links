@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { HttpApi, Memory } from '../src/api.js';
+import { HttpApi, Memory, Throttle } from '../src/api.js';
 
 function response(status: number, body: unknown = {}) {
   return new Response(JSON.stringify(body), {
@@ -9,12 +9,18 @@ function response(status: number, body: unknown = {}) {
   });
 }
 
-function apiWith(fetch: ReturnType<typeof vi.fn>, now = () => 0, pagesKey = '') {
+function apiWith(
+  fetch: ReturnType<typeof vi.fn>,
+  now = () => 0,
+  pagesKey = '',
+  throttle = new Throttle(1000, now),
+) {
   return new HttpApi({
     apiUrl: 'https://api.example',
     pagesKey,
     fetch: fetch as unknown as typeof globalThis.fetch,
     memory: new Memory(60_000, 3, now),
+    throttle,
   });
 }
 
@@ -102,5 +108,50 @@ describe('reading the API', () => {
       'https://api.example/public/profiles/ada',
       'https://api.example/public/communities/sailing',
     ]);
+  });
+
+  it('asks for a comment at its own route', async () => {
+    const fetch = vi.fn(async () => response(200, {}));
+    await apiWith(fetch).comment('c1');
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('https://api.example/public/comments/c1');
+  });
+
+  it('shows what it last found when the API is away, for a day', async () => {
+    let now = 0;
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { id: 'p', content: 'then' }))
+      .mockRejectedValue(new Error('ECONNREFUSED'));
+    const api = apiWith(fetch, () => now);
+
+    await api.post('p1');
+    now = 60 * 60 * 1000; // an hour on: stale, and the API is down
+    expect(await api.post('p1')).toEqual({ kind: 'found', value: { id: 'p', content: 'then' } });
+
+    now = 25 * 60 * 60 * 1000; // past the day
+    expect((await api.post('p1')).kind).toBe('down');
+  });
+
+  it('never brings back something that was not found', async () => {
+    let now = 0;
+    const fetch = vi.fn().mockResolvedValueOnce(response(404)).mockRejectedValue(new Error('down'));
+    const api = apiWith(fetch, () => now);
+    await api.post('gone');
+    now = 2 * 60 * 1000;
+    expect((await api.post('gone')).kind).toBe('down');
+  });
+
+  it('asks the API at most so often a second, whoever is asking', async () => {
+    let now = 0;
+    const fetch = vi.fn(async () => response(404));
+    const api = apiWith(fetch, () => now, '', new Throttle(3, () => now));
+
+    const results = await Promise.all(['a', 'b', 'c', 'd', 'e'].map((id) => api.post(id)));
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(results.map((r) => r.kind)).toEqual(['missing', 'missing', 'missing', 'down', 'down']);
+
+    now = 1000;
+    await api.post('f');
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 });

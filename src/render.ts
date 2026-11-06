@@ -3,9 +3,12 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 
 import type {
   PublicAuthor,
+  PublicComment,
   PublicCommunity,
   PublicMedia,
+  PublicPoll,
   PublicPost,
+  PublicPostSummary,
   PublicProfile,
 } from './api.js';
 import type { Config } from './config.js';
@@ -20,7 +23,8 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
  *
  * There is no JavaScript on any page, and the Content-Security-Policy says
  * so (src/app.ts). A page that runs no script cannot be made to run anybody
- * else's.
+ * else's. Nor is there an inline style: sizes come from attributes, and a
+ * poll's bars are <progress> elements.
  */
 
 /** Only https addresses go into a src or an href; anything else is dropped. */
@@ -58,11 +62,81 @@ const day = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'UTC',
 });
 
+const dayAndTime = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'UTC',
+  timeZoneName: 'short',
+});
+
 export function displayName(author: PublicAuthor): string {
-  return author.name?.trim() || (author.username ? `@${author.username}` : 'Someone');
+  return (
+    author.name?.trim() || (author.username ? `@${author.username}` : 'Someone')
+  );
 }
 
-/** How a person on Android gets from this page into the app. */
+function titleFor(author: PublicAuthor): string {
+  const handle = author.username ? ` (@${author.username})` : '';
+  return `${displayName(author)}${handle} on Kyron`;
+}
+
+// ---------------------------------------------------------------- text --
+
+/**
+ * An address as a line of text shows it: no scheme, no www, and cut short.
+ * The app does the same (display_url.dart): a link a screen wide is noise.
+ */
+export function displayUrl(url: string, max = 32): string {
+  const bare = url.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  return bare.length > max ? `${bare.slice(0, max - 1)}…` : bare;
+}
+
+const TOKEN = /https?:\/\/[^\s<>"'`]+|@[A-Za-z0-9_.]{1,64}/g;
+
+/**
+ * A post's text, with its addresses and mentions made into links.
+ *
+ * Built from escaped pieces: the text between links goes through `html`
+ * like everything else, and each link's address and words do too. An
+ * address is only linked if it is http or https; a mention only if it
+ * starts a word, so ada@example.com stays an email address and is not a
+ * link to @example.com.
+ */
+export function richText(text: string): Html {
+  const parts: Html[] = [];
+  let at = 0;
+  for (const match of text.matchAll(TOKEN)) {
+    const start = match.index ?? 0;
+    let token = match[0];
+    if (token.startsWith('@')) {
+      const before = start > 0 ? text[start - 1] ?? '' : '';
+      if (/[A-Za-z0-9_.]/.test(before)) continue;
+      // A trailing dot is the end of the sentence, not the handle.
+      token = token.replace(/\.+$/, '');
+      if (token.length < 2) continue;
+      parts.push(html`${text.slice(at, start)}`);
+      parts.push(html`<a class="mention" href="/${token}">${token}</a>`);
+    } else {
+      // Punctuation after an address usually belongs to the sentence.
+      token = token.replace(/[.,;:!?)\]}]+$/, '');
+      const href = /^https?:\/\//i.test(token) ? token : null;
+      if (!href) continue;
+      parts.push(html`${text.slice(at, start)}`);
+      parts.push(
+        html`<a class="link" href="${href}" rel="nofollow ugc noopener noreferrer">${displayUrl(href)}</a>`,
+      );
+    }
+    at = start + token.length;
+  }
+  parts.push(html`${text.slice(at)}`);
+  return html`${parts}`;
+}
+
+// ------------------------------------------------------------ the app --
+
+/** How a person gets from this page into the app. */
 export interface OpenIn {
   /** An intent: URL on Android, which opens the app or falls back to Play. */
   app: string | null;
@@ -80,6 +154,21 @@ export function openIn(config: Config, path: string, android: boolean): OpenIn {
   };
 }
 
+function openBlock(open: OpenIn, what: string): Html {
+  if (open.app) {
+    return html`<div class="open">
+  <a class="button primary" href="${open.app}">Open in Kyron</a>
+  <a class="button" href="${open.store}">Get Kyron on Google Play</a>
+</div>`;
+  }
+  return html`<div class="open">
+  <a class="button primary" href="${open.store}">Get Kyron on Google Play</a>
+  <p class="hint">Kyron is an app. Open this link on your Android phone to see the ${what} there.</p>
+</div>`;
+}
+
+// -------------------------------------------------------------- layout --
+
 interface Meta {
   title: string;
   description: string;
@@ -96,6 +185,10 @@ function layout(config: Config, meta: Meta, body: Html): Html {
   const canonical = `${config.siteUrl}${meta.path}`;
   const image = meta.image ?? `${config.siteUrl}/static/card.png`;
   const host = new URL(config.siteUrl).host;
+  const report =
+    `mailto:${config.reportEmail}` +
+    `?subject=${encodeURIComponent(`Report: ${canonical}`)}` +
+    `&body=${encodeURIComponent(`What is wrong with ${canonical}?\n\n`)}`;
   return html`<!doctype html>
 <html lang="en">
 <head>
@@ -135,25 +228,15 @@ ${body}
   <span>${host}</span>
   <a href="${config.termsUrl}">Terms</a>
   <a href="${config.privacyUrl}">Privacy</a>
+  ${meta.noindex ? '' : html`<a href="${report}">Report</a>`}
 </footer>
 </body>
 </html>`;
 }
 
-function openBlock(open: OpenIn, what: string): Html {
-  if (open.app) {
-    return html`<div class="open">
-  <a class="button primary" href="${open.app}">Open in Kyron</a>
-  <a class="button" href="${open.store}">Get Kyron on Google Play</a>
-</div>`;
-  }
-  return html`<div class="open">
-  <a class="button primary" href="${open.store}">Get Kyron on Google Play</a>
-  <p class="hint">Kyron is an app. Open this link on your Android phone to see the ${what} there.</p>
-</div>`;
-}
+// ---------------------------------------------------------- components --
 
-function avatar(url: string | null, label: string, size: number, cls = 'avatar'): Html {
+function avatar(url: string | null, label: string, size: 24 | 44 | 88, cls = 'avatar'): Html {
   const src = safeUrl(url);
   if (src) {
     return html`<img class="${cls}" src="${src}" width="${size}" height="${size}" alt="" loading="lazy">`;
@@ -179,6 +262,12 @@ function byline(author: PublicAuthor): Html {
     : html`<div class="byline">${inner}</div>`;
 }
 
+/** One line: small face, name, handle, date. For quotes and list items. */
+function miniByline(author: PublicAuthor, createdAt: string): Html {
+  const name = displayName(author);
+  return html`<span class="mini">${avatar(author.avatarUrl, name, 24)}<span class="name">${name}${author.verified ? tick : ''}</span>${author.username ? html`<span class="handle">@${author.username}</span>` : ''}<span class="handle">· ${day.format(new Date(createdAt))}</span></span>`;
+}
+
 function mediaItem(m: PublicMedia): Html {
   const url = safeUrl(m.url);
   if (!url) return html``;
@@ -196,8 +285,79 @@ function mediaItem(m: PublicMedia): Html {
   return html`<img class="media" src="${url}" alt="${m.alt ?? ''}" loading="lazy"${size}>`;
 }
 
+/**
+ * Up to four tiles. When a post has more than it shows, the last tile says
+ * how many more: eight pictures shown as four, with nothing said, reads as
+ * four.
+ */
+function gallery(media: PublicMedia[], total: number): Html {
+  const shown = media.filter((m) => safeUrl(m.url)).slice(0, 4);
+  if (shown.length === 0) return html``;
+  const more = Math.max(0, total - shown.length);
+  return html`<div class="gallery n${shown.length}">${shown.map((m, i) =>
+    i === shown.length - 1 && more > 0
+      ? html`<div class="tile more">${mediaItem(m)}<span class="more-count" aria-label="${more} more in the app">+${more}</span></div>`
+      : html`<div class="tile">${mediaItem(m)}</div>`,
+  )}</div>`;
+}
+
+/** The first picture, small, for a quote or a list item. */
+function thumb(media: PublicMedia[], total: number): Html {
+  const first = media[0];
+  if (!first) return html``;
+  const src = first.kind === 'VIDEO' ? safeUrl(first.thumbnailUrl) : safeUrl(first.url);
+  if (!src) return html``;
+  const more = total > 1 ? html`<span class="thumb-count">+${total - 1}</span>` : '';
+  return html`<span class="thumb"><img src="${src}" alt="" loading="lazy" width="72" height="72">${more}</span>`;
+}
+
+export function pollBlock(poll: PublicPoll, now = new Date()): Html {
+  const closed = new Date(poll.closesAt) <= now;
+  const total = poll.totalVotes;
+  const lead = Math.max(0, ...poll.options.map((o) => o.votes));
+  return html`<div class="poll">
+  ${poll.options.map((o) => {
+    const pct = total > 0 ? Math.round((o.votes / total) * 100) : 0;
+    const top = closed && total > 0 && o.votes === lead;
+    return html`<div class="option${top ? ' top' : ''}">
+    <div class="option-row"><span class="option-text">${o.text}</span><span class="option-pct">${pct}%</span></div>
+    <progress max="${Math.max(total, 1)}" value="${o.votes}">${pct}%</progress>
+  </div>`;
+  })}
+  <p class="poll-meta">${count(total, 'vote', 'votes')} · ${closed ? 'Final results' : html`Open until ${dayAndTime.format(new Date(poll.closesAt))}`}</p>
+</div>`;
+}
+
+function quoteCard(quoted: NonNullable<PublicPost['quoted']>): Html {
+  return html`<a class="quote" href="/post/${quoted.id}">
+  ${miniByline(quoted.author, quoted.createdAt)}
+  <span class="quote-body">${thumb(quoted.media, quoted.media.length)}<span class="quote-text">${summary(quoted.content, 280)}</span></span>
+</a>`;
+}
+
+/** A post in a list: the whole card is one link to its page. */
+function listItem(post: PublicPostSummary): Html {
+  return html`<a class="item" href="/post/${post.id}">
+  ${miniByline(post.author, post.createdAt)}
+  <span class="item-body">
+    ${post.content.trim() ? html`<span class="item-text">${summary(post.content, 280)}</span>` : html`<span class="item-text muted">${post.hasVoice ? 'A voice note' : 'A photo'}</span>`}
+    ${thumb(post.media, post.mediaCount)}
+  </span>
+  <span class="meta"><span>${count(post.stats.likes, 'like', 'likes')}</span><span>${count(post.stats.comments, 'comment', 'comments')}</span></span>
+</a>`;
+}
+
+function recentList(posts: PublicPostSummary[], empty: string): Html {
+  return html`<section class="recent">
+  <h2>Recent posts</h2>
+  ${posts.length ? html`<div class="list">${posts.map(listItem)}</div>` : html`<p class="hint">${empty}</p>`}
+</section>`;
+}
+
 /** The picture a card is drawn with: the post's own, else its author's face. */
-export function cardImage(post: PublicPost): { url: string | null; large: boolean } {
+export function cardImage(
+  post: Pick<PublicPostSummary, 'media' | 'author'>,
+): { url: string | null; large: boolean } {
   for (const m of post.media) {
     const url = m.kind === 'VIDEO' ? safeUrl(m.thumbnailUrl) : safeUrl(m.url);
     if (url) return { url, large: true };
@@ -205,19 +365,26 @@ export function cardImage(post: PublicPost): { url: string | null; large: boolea
   return { url: safeUrl(post.author.avatarUrl), large: false };
 }
 
-export function postPage(config: Config, post: PublicPost, open: OpenIn): Html {
-  const name = displayName(post.author);
-  const handle = post.author.username ? ` (@${post.author.username})` : '';
-  const text = summary(post.content);
+// --------------------------------------------------------------- pages --
+
+export function postPage(config: Config, post: PublicPost, open: OpenIn, now = new Date()): Html {
   const image = cardImage(post);
-  const media = post.media.filter((m) => safeUrl(m.url));
-  const when = day.format(new Date(post.createdAt));
+  const text = summary(post.content);
+  const description =
+    text ||
+    (post.poll
+      ? 'A poll on Kyron'
+      : post.mediaCount > 1
+        ? `${post.mediaCount} photos on Kyron`
+        : post.mediaCount === 1
+          ? 'A photo on Kyron'
+          : 'A post on Kyron');
 
   return layout(
     config,
     {
-      title: `${name}${handle} on Kyron`,
-      description: text || (media.length ? 'A photo on Kyron' : 'A post on Kyron'),
+      title: titleFor(post.author),
+      description,
       path: `/post/${post.id}`,
       image: image.url,
       largeImage: image.large,
@@ -226,26 +393,60 @@ export function postPage(config: Config, post: PublicPost, open: OpenIn): Html {
     html`<article class="card">
   ${byline(post.author)}
   ${post.community ? html`<a class="chip" href="/c/${post.community.slug}">${post.community.name}</a>` : ''}
-  ${post.content.trim() ? html`<p class="content">${post.content.trim()}</p>` : ''}
-  ${media.length ? html`<div class="gallery n${Math.min(media.length, 4)}">${media.map(mediaItem)}</div>` : ''}
+  ${post.content.trim() ? html`<p class="content">${richText(post.content.trim())}</p>` : ''}
+  ${post.poll ? pollBlock(post.poll, now) : ''}
+  ${gallery(post.media, post.mediaCount)}
   ${post.hasVoice ? html`<p class="voice">This post has a voice note. Open it in the app to listen.</p>` : ''}
-  <p class="meta"><time datetime="${post.createdAt}">${when}</time>
+  ${post.quoted ? quoteCard(post.quoted) : ''}
+  <p class="meta"><time datetime="${post.createdAt}">${day.format(new Date(post.createdAt))}</time>
     <span>${count(post.stats.likes, 'like', 'likes')}</span>
-    <span>${count(post.stats.comments, 'comment', 'comments')}</span></p>
+    <span>${count(post.stats.comments, 'comment', 'comments')}</span>
+    ${post.stats.reposts > 0 ? html`<span>${count(post.stats.reposts, 'repost', 'reposts')}</span>` : ''}</p>
 </article>
-${openBlock(open, 'post and its replies')}`,
+${openBlock(open, post.poll ? 'poll and vote' : 'post and its replies')}`,
+  );
+}
+
+export function commentPage(config: Config, comment: PublicComment, open: OpenIn): Html {
+  const own = cardImage({ media: comment.media, author: comment.author });
+  const image = comment.media.length ? own : cardImage(comment.post);
+  const replyTo = displayName(comment.post.author);
+  return layout(
+    config,
+    {
+      title: titleFor(comment.author),
+      description:
+        summary(comment.content) || `A reply to ${replyTo} on Kyron`,
+      path: `/comment/${comment.id}`,
+      image: image.url ?? safeUrl(comment.author.avatarUrl),
+      largeImage: image.large,
+      type: 'article',
+    },
+    html`<article class="card">
+  ${byline(comment.author)}
+  <p class="replying">Replying to ${comment.post.author.username ? html`<a href="/@${comment.post.author.username}">@${comment.post.author.username}</a>` : replyTo}</p>
+  ${comment.content.trim() ? html`<p class="content">${richText(comment.content.trim())}</p>` : ''}
+  ${gallery(comment.media, comment.media.length)}
+  <p class="meta"><time datetime="${comment.createdAt}">${day.format(new Date(comment.createdAt))}</time>
+    <span>${count(comment.stats.likes, 'like', 'likes')}</span>
+    <span>${count(comment.stats.replies, 'reply', 'replies')}</span></p>
+</article>
+<section class="recent">
+  <h2>The post</h2>
+  <div class="list">${listItem(comment.post)}</div>
+</section>
+${openBlock(open, 'whole conversation')}`,
   );
 }
 
 export function profilePage(config: Config, profile: PublicProfile, open: OpenIn): Html {
   const name = displayName(profile);
-  const handle = profile.username ? ` (@${profile.username})` : '';
   const cover = safeUrl(profile.coverUrl);
   const path = profile.username ? `/@${profile.username}` : `/u/${profile.id}`;
   return layout(
     config,
     {
-      title: `${name}${handle} on Kyron`,
+      title: titleFor(profile),
       description: profile.bio
         ? summary(profile.bio)
         : `${count(profile.stats.followers, 'follower', 'followers')} on Kyron`,
@@ -259,14 +460,15 @@ export function profilePage(config: Config, profile: PublicProfile, open: OpenIn
   ${avatar(profile.avatarUrl, name, 88, 'avatar big')}
   <h1 class="name">${name}${profile.verified ? tick : ''}</h1>
   ${profile.username ? html`<p class="handle">@${profile.username}</p>` : ''}
-  ${profile.bio ? html`<p class="content">${profile.bio}</p>` : ''}
+  ${profile.bio ? html`<p class="content">${richText(profile.bio)}</p>` : ''}
   <p class="meta">
     <span><strong>${compactNumber.format(profile.stats.posts)}</strong> ${profile.stats.posts === 1 ? 'post' : 'posts'}</span>
     <span><strong>${compactNumber.format(profile.stats.followers)}</strong> ${profile.stats.followers === 1 ? 'follower' : 'followers'}</span>
     <span><strong>${compactNumber.format(profile.stats.following)}</strong> following</span>
   </p>
 </section>
-${openBlock(open, 'profile and its posts')}`,
+${openBlock(open, 'profile and follow it')}
+${recentList(profile.recent, 'No posts yet.')}`,
   );
 }
 
@@ -289,9 +491,10 @@ export function communityPage(config: Config, community: PublicCommunity, open: 
   ${avatar(community.avatarUrl, community.name, 88, 'avatar big square')}
   <h1 class="name">${community.name}</h1>
   <p class="handle">${count(community.members, 'member', 'members')}</p>
-  ${community.description ? html`<p class="content">${community.description}</p>` : ''}
+  ${community.description ? html`<p class="content">${richText(community.description)}</p>` : ''}
 </section>
-${openBlock(open, 'community')}`,
+${openBlock(open, 'community and join it')}
+${recentList(community.recent, 'Nothing has been posted here yet.')}`,
   );
 }
 
