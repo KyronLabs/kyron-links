@@ -155,3 +155,39 @@ describe('reading the API', () => {
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 });
+
+describe('when the API fails', () => {
+  it('says why, briefly, and logs it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cases: [ReturnType<typeof vi.fn>, string][] = [
+      [vi.fn(async () => response(502)), 'status 502'],
+      [vi.fn(async () => response(429)), 'status 429'],
+      [
+        vi.fn(async () => {
+          throw Object.assign(new TypeError('fetch failed'), {
+            cause: { code: 'ECONNREFUSED' },
+          });
+        }),
+        'TypeError ECONNREFUSED',
+      ],
+      [
+        vi.fn(async () => {
+          throw new DOMException('timed out', 'TimeoutError');
+        }),
+        'TimeoutError',
+      ],
+    ];
+    for (const [fetch, reason] of cases) {
+      expect(await apiWith(fetch).post('p1')).toEqual({ kind: 'down', reason });
+    }
+    expect(warn).toHaveBeenCalledWith('API /public/posts/p1 failed: status 502');
+    warn.mockRestore();
+  });
+
+  it('says so when it is the ceiling, not the API', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const api = apiWith(vi.fn(async () => response(200)), () => 0, '', new Throttle(0, () => 0));
+    expect(await api.post('p1')).toEqual({ kind: 'down', reason: 'throttled' });
+    warn.mockRestore();
+  });
+});

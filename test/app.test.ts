@@ -262,8 +262,12 @@ describe('a shared post', () => {
   });
 
   it('is a 503 that nobody caches when the API is away', async () => {
-    const { res, body } = await get(appWith(fakeApi({ post: { kind: 'down' } })), `/post/${POST_ID}`);
+    const { res, body } = await get(
+      appWith(fakeApi({ post: { kind: 'down', reason: 'status 502' } })),
+      `/post/${POST_ID}`,
+    );
     expect(res.status).toBe(503);
+    expect(res.headers.get('x-upstream')).toBe('status 502');
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('retry-after')).toBe('30');
     expect(body).toContain("can't be reached");
