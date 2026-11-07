@@ -5,19 +5,38 @@ For what the service is and how it works, see [README.md](README.md).
 
 ## 1. Create the service
 
-Render asks for a card to deploy a Blueprint (`render.yaml`), but not to
-create a single web service on the Free plan. To create one by hand:
+Deploy it as a Blueprint, from `render.yaml`:
+
+1. Dashboard → **New** → **Blueprint** → `KyronLabs/kyron-links`.
+2. Render reads `render.yaml` and creates the `kyron-links` web service: Node,
+   Oregon (the API's region), Free plan, the build and start commands, the
+   health check, and every variable with a value.
+3. It asks for the two variables marked `sync: false`, `PUBLIC_PAGES_KEY` and
+   `ANDROID_CERT_SHA256`. Fill them in now or later (step 2).
+
+From then on, `render.yaml` is the service's settings. Change them there, in a
+pull request, and Render applies the change when it merges. A setting changed
+only in the dashboard is overwritten the next time the Blueprint syncs.
+
+The service comes up at `https://kyron-links.onrender.com`, or a similar name
+if that one is taken. If the name differs, change `SITE_URL` in `render.yaml`.
+
+### Without a Blueprint
+
+Render may ask for a card before deploying a Blueprint. A single web service
+on the Free plan doesn't need one. To create it by hand instead:
 
 1. Dashboard → **New** → **Web Service** → `KyronLabs/kyron-links`.
-2. **Language** Node, **Branch** `main`, **Region** Oregon (the API's region).
+2. **Language** Node, **Branch** `main`, **Region** Oregon.
 3. **Build command:** `npm ci && npm run build`
 4. **Start command:** `npm start`
 5. **Instance type:** Free.
-6. **Environment:** add `NODE_VERSION` = `22`. The other variables are in step 2.
+6. **Environment:** `NODE_VERSION` = `22`, and the variables in step 2.
 7. **Advanced** → **Health check path:** `/healthz`
 
-The service comes up at `https://kyron-links.onrender.com`, or a similar name
-if that one is taken. Set `SITE_URL` to whatever address it gets.
+A service made this way doesn't read `render.yaml`: its settings live only in
+the dashboard. Use one way or the other, never both, or there will be two
+services answering for the same thing.
 
 ## 2. Set the variables
 
