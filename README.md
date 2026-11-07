@@ -66,26 +66,7 @@ The pages are a small target on purpose:
 
 The API is the real boundary. This service only shows what `/public/*` returns.
 
-## Configuration
-
-| Variable | Default | |
-|:--|:--|:--|
-| `API_URL` | `https://kyron-47r6.onrender.com` | The API |
-| `SITE_URL` | `https://kyron-links.onrender.com` | The address links are written with: canonical URLs, cards, the Android intent |
-| `PUBLIC_PAGES_KEY` | none | The same value as the API's. Without it, every visitor shares the API's per-address limit of 100 requests a minute. |
-| `ANDROID_CERT_SHA256` | none | The app signing certificate's SHA-256, from Play Console → App integrity → App signing. Several, comma-separated. |
-| `ANDROID_PACKAGE` | `so.kyron.app` | |
-| `IOS_APP_IDS` | none | `TEAMID.bundle.id`, once there is an iOS app |
-| `PLAY_URL`, `APP_STORE_URL` | Play listing, none | |
-| `TERMS_URL`, `PRIVACY_URL` | the published pages | |
-| `REPORT_EMAIL` | `spidroidtechnologiesinc@gmail.com` | Where Report writes to |
-| `PORT` | `3000` | |
-
-The server refuses to start on a value that is wrong, such as a malformed
-fingerprint, an `http://` address or a key too short for the API to accept,
-rather than serving with it.
-
-## Running it
+## Running it locally
 
 ```sh
 npm ci
@@ -93,52 +74,21 @@ npm test
 npm run build && npm start
 ```
 
-## Deploying on Render, without a card
+It starts on port 3000 against the production API, with working defaults for
+everything.
 
-Render asks for a card for Blueprints (`render.yaml`), but not for a single
-web service on the Free plan. To set one up by hand:
+## Layout
 
-1. Dashboard → **New** → **Web Service** → this repository.
-2. **Language** Node, **Branch** `main`, **Region** Oregon (the API's).
-3. **Build command** `npm ci && npm run build`
-4. **Start command** `npm start`
-5. **Instance type** Free.
-6. **Environment**: `NODE_VERSION` = `22`, and the variables below as you get
-   them. Every one has a working default except the key and the fingerprint.
-7. **Advanced** → **Health check path** `/healthz`.
-
-The service comes up at `https://kyron-links.onrender.com`, or a name like it if
-that one is taken. Set `SITE_URL` to whatever address it gets.
-
-### What Free costs you
-
-A free service **sleeps after 15 minutes without a visit**, and the next visit
-waits about a minute while it wakes. A person waits that out. WhatsApp, X and
-iMessage don't: they give up after a few seconds and post the link without a
-card. Two ways round it:
-
-- **Keep it awake.** A free pinger such as cron-job.org or UptimeRobot can open
-  `https://<site>/healthz` every 10 minutes. Free services share 750 hours a
-  month per workspace, and one awake all month uses about 744, so this works
-  for one service, not two. If the API is also on Free and asleep, kyron-links
-  waits for it too (up to 10 seconds).
-- **Starter** ($7 a month) never sleeps. That's the fix once links matter.
-
-The day-long memory helps only while kyron-links itself is awake: it lives in
-the server's process, so a sleeping service has forgotten everything when it
-wakes.
+| | |
+|:--|:--|
+| `src/server.ts` | Starts the server |
+| `src/app.ts` | Routes and security headers |
+| `src/render.ts` | The pages |
+| `src/api.ts` | Reading the API, the cache and the request ceiling |
+| `src/config.ts` | Settings, read from the environment |
+| `static/` | Stylesheet, logo and the default link card |
+| `test/` | Tests (Vitest) |
 
 ## Deploying
 
-Once it's up:
-
-1. Set `PUBLIC_PAGES_KEY` here and on the API to the same value
-   (`openssl rand -hex 32`).
-2. Set `ANDROID_CERT_SHA256` (Play Console → Test and release → App integrity →
-   App signing → *App signing key certificate*, SHA-256). Check that
-   `https://<site>/.well-known/assetlinks.json` answers.
-3. When there's a domain, attach it, then set `SITE_URL` to it.
-
-The app's links (`KyronLinks.host` in KyronLabs/kyron) must use the same
-domain. Android verifies App Links per host, so links on a domain that serves
-no `assetlinks.json` open in the browser, never in the app.
+See [SETUP.md](SETUP.md).

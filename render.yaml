@@ -5,7 +5,7 @@ services:
     name: kyron-links
     runtime: node
     region: oregon
-    # Free: no card needed. It sleeps after 15 idle minutes; see README.
+    # Free: no card needed. It sleeps after 15 idle minutes; see SETUP.md.
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
