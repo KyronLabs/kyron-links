@@ -76,6 +76,9 @@ export function createApp(config: Config, api: Api, assets: Map<string, Asset>) 
     if (lookup.kind === 'missing') return missing(c, what);
     c.header('Cache-Control', 'no-store');
     c.header('Retry-After', '30');
+    // Why, in a few words with nothing secret in them, so a 503 can be
+    // understood from outside without the server's logs.
+    c.header('X-Upstream', lookup.reason ?? 'down');
     return c.html(await downPage(config, c.req.path), 503);
   }
 

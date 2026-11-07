@@ -93,7 +93,17 @@ export interface PublicCommunity {
 export type Lookup<T> =
   | { kind: 'found'; value: T }
   | { kind: 'missing' }
-  | { kind: 'down' };
+  /** [reason] says why, briefly, for the log and the X-Upstream header. */
+  | { kind: 'down'; reason?: string };
+
+/** Why a request failed, in a few safe words: no addresses, no secrets. */
+export function describeFailure(error: unknown): string {
+  const e = error as { name?: string; cause?: { code?: string; name?: string } };
+  const parts = [e?.name, e?.cause?.code ?? e?.cause?.name].filter(
+    (p): p is string => typeof p === 'string' && p.length > 0,
+  );
+  return (parts.join(' ') || 'error').replace(/[^A-Za-z0-9 _:.-]/g, '').slice(0, 80);
+}
 
 export interface Api {
   post(id: string): Promise<Lookup<PublicPost>>;
@@ -262,7 +272,17 @@ export class HttpApi implements Api {
   }
 
   private async fetchOnce(path: string): Promise<Lookup<unknown>> {
-    if (!this.throttle.take()) return { kind: 'down' };
+    const lookup = await this.fetchUnlogged(path);
+    // A failure nobody can see is one nobody can fix: the first deploy
+    // answered every page with 503 and said nothing about why.
+    if (lookup.kind === 'down') {
+      console.warn(`API ${path} failed: ${lookup.reason ?? 'unknown'}`);
+    }
+    return lookup;
+  }
+
+  private async fetchUnlogged(path: string): Promise<Lookup<unknown>> {
+    if (!this.throttle.take()) return { kind: 'down', reason: 'throttled' };
 
     const headers: Record<string, string> = { accept: 'application/json' };
     if (this.options.pagesKey) {
@@ -276,9 +296,9 @@ export class HttpApi implements Api {
         signal: AbortSignal.timeout(this.timeoutMs),
         redirect: 'error',
       });
-    } catch {
+    } catch (error) {
       // Not remembered: the API being briefly away is not an answer.
-      return { kind: 'down' };
+      return { kind: 'down', reason: describeFailure(error) };
     }
 
     // 400 is the API refusing the name as one that could not exist: as
@@ -288,7 +308,7 @@ export class HttpApi implements Api {
       this.memory.set(path, lookup);
       return lookup;
     }
-    if (!response.ok) return { kind: 'down' };
+    if (!response.ok) return { kind: 'down', reason: `status ${response.status}` };
 
     try {
       const lookup: Lookup<unknown> = {
@@ -298,7 +318,7 @@ export class HttpApi implements Api {
       this.memory.set(path, lookup);
       return lookup;
     } catch {
-      return { kind: 'down' };
+      return { kind: 'down', reason: 'unreadable body' };
     }
   }
 }
